@@ -45,25 +45,30 @@ let solve primes p3 =
       else
         let narrow = Stream.filter << List.match_index n in
         function
-        | d :: ds when List.mem d digits ->
-            let digits = List.remove d digits in
-            (* For each digit of p3, either p1 or p2 matches it.
-            hits = remaining primes for the one that matches
-            misses = remaining primes for the other      
-          *)
-            let branch pair hits misses =
-              let hits = narrow d hits in
-              digits |> Stream.to_stream
-              |> Stream.flatmap (fun d' ->
-                  let misses = narrow d' misses in
-                  let digits = List.remove d' digits in
-                  let p1s, p2s = pair hits misses in
-                  aux (n + 1, p1s, p2s, digits) ds)
-            in
-            (* Generate solutions for both cases, then concatenate *)
-            Stream.cat
-              (branch (fun x y -> (x, y)) p1s p2s)
-              (branch (fun x y -> (y, x)) p2s p1s)
+        (* Out of digits *)
+        | d :: _ when (not << Stream.mem d) digits -> Stream.Empty
+        | d :: ds -> (
+            match Stream.remove d digits with
+            (* Out of digits *)
+            | Stream.Empty -> Stream.Empty
+            | digits ->
+                (* For each digit of p3, either p1 or p2 matches it.
+                hits = remaining primes for the one that matches
+                misses = remaining primes for the other *)
+                let branch pair hits misses =
+                  let hits = narrow d hits in
+                  Stream.flatmap
+                    (fun d' ->
+                      let misses = narrow d' misses in
+                      let digits = Stream.remove d' digits in
+                      let p1s, p2s = pair hits misses in
+                      aux (n + 1, p1s, p2s, digits) ds)
+                    digits
+                in
+                (* Generate solutions for both cases, then concatenate *)
+                Stream.cat
+                  (branch (fun x y -> (x, y)) p1s p2s)
+                  (branch (fun x y -> (y, x)) p2s p1s))
         | [] -> (
             match (p1s, p2s) with
             | Stream.Cons (p1_digits, _), Stream.Cons (p2_digits, _) ->
@@ -71,11 +76,10 @@ let solve primes p3 =
                 and p2 = Digit.to_int p2_digits in
                 Stream.singleton (p1, p2, p3)
             | _ -> Stream.Empty)
-        (* When running out of digits *)
-        | _ :: _ -> Stream.Empty
   in
   let candidates = primes |> Stream.to_stream |> Stream.map Digit.to_digits in
-  aux (0, candidates, candidates, Digit.all) p3_digits
+  let all_digits = Stream.to_stream Digit.all in
+  aux (0, candidates, candidates, all_digits) p3_digits
 
 let () =
   let out_file = "solutions.txt" in
@@ -84,8 +88,8 @@ let () =
   let prime_list = Stream.to_list primes in
   print_endline "Calculating...";
   let result =
-    let open Parallel in
-    parallelize 8 prime_list (fun on_progress ->
+    prime_list
+    |> Parallel.parallelize 10 (fun on_progress ->
         Stream.to_stream
         >> Stream.flatmap (solve prime_list)
         >> Stream.map (fun (p1, p2, p3) ->

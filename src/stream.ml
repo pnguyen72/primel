@@ -39,17 +39,18 @@ let rec map f = function
   | Cons (item, next) -> Cons (f item, lazy (map f (Lazy.force next)))
   | _ -> Empty
 
-let rec iter f = function
-  | Cons (item, next) ->
-      let () = f item in
-      iter f (Lazy.force next)
-  | _ -> ()
-
 let rec filter p = function
   | Cons (item, next) when p item ->
       Cons (item, lazy (filter p (Lazy.force next)))
   | Cons (_, next) -> filter p (Lazy.force next)
   | _ -> Empty
+
+let remove v = filter (( <> ) v)
+
+let rec mem v = function
+  | Cons (v', _) when v = v' -> true
+  | Cons (_, next) -> mem v (Lazy.force next)
+  | _ -> false
 
 let rec cat s1 s2 =
   match s1 with

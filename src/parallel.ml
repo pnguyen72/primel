@@ -1,6 +1,6 @@
 open ProgressBar
 
-let parallelize chunk_count domain f =
+let parallelize chunk_count f domain =
   let chunk_size = (List.length domain + chunk_count - 1) / chunk_count in
   let chunks = List.to_chunks chunk_size domain in
 
