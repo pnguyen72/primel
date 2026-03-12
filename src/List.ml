@@ -1,11 +1,11 @@
-include List
+include Stdlib.List
 
 let rec last = function
   | [] -> failwith "Empty list"
   | [ x ] -> x
   | _ :: xs -> last xs
 
-let remove v = List.filter (( <> ) v)
+let remove v = filter (( <> ) v)
 
 let rec match_index idx v = function
   | x :: _ when idx = 0 -> x = v
@@ -15,11 +15,11 @@ let rec match_index idx v = function
 let to_chunks n =
   let rec split chunk n list =
     match (n, list) with
-    | 0, _ | _, [] -> (List.rev chunk, list)
+    | 0, _ | _, [] -> (rev chunk, list)
     | _, x :: xs -> split (x :: chunk) (n - 1) xs
   in
   let rec collect chunks = function
-    | [] -> List.rev chunks
+    | [] -> rev chunks
     | list ->
         let chunk, rest = split [] n list in
         collect (chunk :: chunks) rest

@@ -1,4 +1,3 @@
-module List = ExtendedList
 open ProgressBar
 
 let parallelize chunk_count domain f =

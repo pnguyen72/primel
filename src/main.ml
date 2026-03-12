@@ -1,5 +1,3 @@
-module List = ExtendedList
-
 let ( << ) = Fun.compose
 
 let ( >> ) f g x = g (f x)
@@ -86,7 +84,8 @@ let () =
   let prime_list = Stream.to_list primes in
   print_endline "Calculating...";
   let result =
-    Parallel.parallelize 12 prime_list (fun on_progress ->
+    let open Parallel in
+    parallelize 8 prime_list (fun on_progress ->
         Stream.to_stream
         >> Stream.flatmap (solve prime_list)
         >> Stream.map (fun (p1, p2, p3) ->
