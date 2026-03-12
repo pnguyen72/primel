@@ -1,6 +1,9 @@
 type 'a t = Cons of 'a * 'a t Lazy.t | Empty
 
-let first ~default = function Cons (item, _) -> item | _ -> default
+let first ~default = function
+  | Cons (item, _) -> item
+  | _ -> default
+
 let is_empty t = t = Empty
 
 let rec to_stream = function
