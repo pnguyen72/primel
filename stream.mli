@@ -1,7 +1,6 @@
 type 'a t = Cons of 'a * 'a t lazy_t | Empty
 
 val first : default:'a -> 'a t -> 'a
-val last : default:'a -> 'a t -> 'a
 val is_empty : 'a t -> bool
 val to_stream : 'a list -> 'a t
 val singleton : 'a -> 'a t

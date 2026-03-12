@@ -1,2 +1,3 @@
 (executable
- (name primel))
+ (name primel)
+ (libraries unix))

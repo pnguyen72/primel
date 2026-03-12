@@ -1,14 +1,14 @@
-(* ------ Helpers ------ *)
+(* ------ Logic helpers ------ *)
 
 let ( << ) = Fun.compose
 let ( >> ) f g x = g (f x)
 let rec to_digits = function 0 -> [] | n -> to_digits (n / 10) @ [ n mod 10 ]
 let from_digits = List.fold_left (fun acc d -> (acc * 10) + d) 0
 
-let rec last_elememt = function
-  | [] -> failwith "Empty list has no last element"
+let rec last = function
+  | [] -> failwith "Empty list"
   | [ x ] -> x
-  | _ :: xs -> last_elememt xs
+  | _ :: xs -> last xs
 
 let rec matches idx v = function
   | x :: _ when idx = 0 -> x = v
@@ -18,6 +18,39 @@ let rec matches idx v = function
 (* Because there are only 10 digits, using List is actually faster than Set *)
 let all_digits = List.init 10 Fun.id
 let remove v = List.filter (( <> ) v)
+
+(* ------ Progress bar & parallelism ------ *)
+
+let progress_bar total covered =
+  let ratio = covered /. total in
+  let percentage = int_of_float (ratio *. 100.) in
+  let completed = int_of_float (ratio *. 50.) in
+  let bar = String.make completed '#' ^ String.make (50 - completed) ' ' in
+  Printf.printf "\r[%s] (%d%%)%!" bar percentage
+
+let parallel_progress_bar (mins, maxes, frontiers) =
+  let total =
+    maxes |> Array.to_seqi
+    |> Seq.fold_left (fun acc (i, max) -> acc + max - mins.(i)) 0
+    |> float_of_int
+  in
+  let progress = progress_bar total in
+
+  let stop = Atomic.make false in
+  let reporter =
+    Domain.spawn (fun () ->
+        while not (Atomic.get stop) do
+          Unix.sleepf 0.2;
+          frontiers |> Array.to_seqi
+          |> Seq.fold_left (fun acc (i, front) -> acc + front - mins.(i)) 0
+          |> float_of_int |> progress
+        done;
+        progress total;
+        print_newline ())
+  in
+  fun () ->
+    Atomic.set stop true;
+    Domain.join reporter
 
 let to_chunks n =
   let rec split chunk n list =
@@ -33,10 +66,30 @@ let to_chunks n =
   in
   if n < 1 then failwith "Chunk size must be positive" else collect []
 
-(* ------ Main logic ------ *)
+let parallelize chunk_count domain f =
+  let chunk_size = (List.length domain + chunk_count - 1) / chunk_count in
+  let chunks = to_chunks chunk_size domain in
+
+  let chunk_mins = chunks |> List.map List.hd |> Array.of_list in
+  let chunk_maxes = chunks |> List.map last |> Array.of_list in
+  let frontiers = Array.copy chunk_mins in
+  let callback i v = frontiers.(i) <- v in
+
+  let stop_progress =
+    parallel_progress_bar (chunk_mins, chunk_maxes, frontiers)
+  in
+  let result =
+    chunks
+    |> List.mapi (fun i chunk -> Domain.spawn (fun () -> f (callback i) chunk))
+    |> List.map Domain.join
+  in
+  stop_progress ();
+  result
+
+(* ------ Main ------ *)
 
 (* Sieve of Eratosthenes *)
-let primes_generator =
+let primes =
   let module M = struct
     include Map.Make (Int)
 
@@ -53,6 +106,8 @@ let primes_generator =
     | Some p -> map |> M.remove n |> M.safe_add (n + p) p |> primes_from (n + 1)
   in
   primes_from 2 M.empty
+  |> Stream.drop_while (fun p -> p < 10000)
+  |> Stream.take_while (fun p -> p <= 99999)
 
 (* Given p3, find all solutions (p1, p2, p3) *)
 let solve primes p3 =
@@ -110,24 +165,17 @@ let solve primes p3 =
 let () =
   let out_file = "solutions.txt" in
   let oc = open_out out_file in
-  let primes =
-    primes_generator
-    |> Stream.drop_while (fun p -> p < 10000)
-    |> Stream.take_while (fun p -> p <= 99999)
-    |> Stream.to_list
+  let prime_list = Stream.to_list primes in
+  print_endline "Calculating...";
+  let result =
+    parallelize 12 prime_list (fun on_progress ->
+        Stream.to_stream
+        >> Stream.flatmap (solve prime_list)
+        >> Stream.map (fun (p1, p2, p3) ->
+            Printf.fprintf oc "(%d, %d, %d)\n" p1 p2 p3;
+            on_progress p3)
+        >> Stream.count)
+    |> List.fold_left ( + ) 0
   in
-  let chunk_size = 1000 in
-  let solve_chunk =
-    Stream.to_stream
-    >> Stream.flatmap (solve primes)
-    >> Stream.map (fun (p1, p2, p3) ->
-        Printf.fprintf oc "Found solution: %d, %d, %d\n" p1 p2 p3)
-    >> Stream.count
-  in
-  let total_count =
-    primes |> to_chunks chunk_size
-    |> List.map (fun chunk -> Domain.spawn (fun () -> solve_chunk chunk))
-    |> List.map Domain.join |> List.fold_left ( + ) 0
-  in
-  Printf.printf "Solutions: %d\n" total_count;
+  Printf.printf "Solutions: %d\n" result;
   Printf.printf "Output written to %s\n" out_file
