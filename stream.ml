@@ -13,12 +13,19 @@ let rec to_stream = function
   | [] -> Empty
   | x :: xs -> Cons (x, lazy (to_stream xs))
 
+let to_list s =
+  let rec aux acc = function
+    | Cons (item, next) -> aux (item :: acc) (Lazy.force next)
+    | _ -> List.rev acc
+  in
+  aux [] s
+
 let singleton v = Cons (v, lazy Empty)
 
 let count s =
   let rec aux acc = function
     | Cons (_, next) -> aux (acc + 1) (Lazy.force next)
-    | _ -> 0
+    | _ -> acc
   in
   aux 0 s
 
@@ -34,6 +41,12 @@ let rec take_while p = function
 let rec map f = function
   | Cons (item, next) -> Cons (f item, lazy (map f (Lazy.force next)))
   | _ -> Empty
+
+let rec iter f = function
+  | Cons (item, next) ->
+      let () = f item in
+      iter f (Lazy.force next)
+  | _ -> ()
 
 let rec filter p = function
   | Cons (item, next) when p item ->

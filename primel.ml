@@ -1,8 +1,14 @@
 (* ------ Helpers ------ *)
 
 let ( << ) = Fun.compose
+let ( >> ) f g x = g (f x)
 let rec to_digits = function 0 -> [] | n -> to_digits (n / 10) @ [ n mod 10 ]
 let from_digits = List.fold_left (fun acc d -> (acc * 10) + d) 0
+
+let rec last_elememt = function
+  | [] -> failwith "Empty list has no last element"
+  | [ x ] -> x
+  | _ :: xs -> last_elememt xs
 
 let rec matches idx v = function
   | x :: _ when idx = 0 -> x = v
@@ -13,34 +19,19 @@ let rec matches idx v = function
 let all_digits = List.init 10 Fun.id
 let remove v = List.filter (( <> ) v)
 
-let progress_bar min max =
-  let fmin = float_of_int min and fmax = float_of_int max in
-  let last_percentage = ref (-1) in
-  let handle item =
-    let ratio = (float_of_int item -. fmin) /. (fmax -. fmin) in
-    let percentage = int_of_float (ratio *. 100.) in
-    if percentage <> !last_percentage then (
-      let bar ratio =
-        let completed = int_of_float (ratio *. 50.) in
-        let remaining = 50 - completed in
-        String.make completed '#' ^ String.make remaining ' '
-      in
-      Printf.printf "\r[%s] (%d%%)%!" (bar ratio) percentage;
-      last_percentage := percentage)
+let to_chunks n =
+  let rec split chunk n list =
+    match (n, list) with
+    | 0, _ | _, [] -> (List.rev chunk, list)
+    | _, x :: xs -> split (x :: chunk) (n - 1) xs
   in
-  print_endline "Calculating...";
-  (* To show the bar immediately *)
-  handle min;
-  let rec aux = function
-    | Stream.Cons (item, next) ->
-        handle item;
-        aux (Lazy.force next)
-    | _ ->
-        (* To make the bar complete with 100% *)
-        handle max;
-        print_newline ()
+  let rec collect chunks = function
+    | [] -> List.rev chunks
+    | list ->
+        let chunk, rest = split [] n list in
+        collect (chunk :: chunks) rest
   in
-  aux
+  if n < 1 then failwith "Chunk size must be positive" else collect []
 
 (* ------ Main logic ------ *)
 
@@ -63,15 +54,8 @@ let primes_generator =
   in
   primes_from 2 M.empty
 
-let primes =
-  primes_generator
-  |> Stream.drop_while (fun p -> p < 10000)
-  |> Stream.take_while (fun p -> p <= 99999)
-
-let primes_digits = Stream.map to_digits primes
-
 (* Given p3, find all solutions (p1, p2, p3) *)
-let solve p3 =
+let solve primes p3 =
   let p3_digits = to_digits p3 in
   (*
     n = current digit index
@@ -120,20 +104,30 @@ let solve p3 =
         (* When running out of digits *)
         | _ :: _ -> Stream.Empty
   in
-  aux (0, primes_digits, primes_digits, all_digits) p3_digits
-
-let solutions = Stream.flatmap solve primes
+  let candidates = primes |> Stream.to_stream |> Stream.map to_digits in
+  aux (0, candidates, candidates, all_digits) p3_digits
 
 let () =
-  let out_file_name = "solutions.txt" in
-  let oc = open_out out_file_name in
-  solutions
-  |> Stream.map (fun (p1, p2, p3) ->
-      Printf.fprintf oc "%d, %d, %d\n" p1 p2 p3;
-      p3)
-  |> progress_bar
-       (primes |> Stream.first ~default:10000)
-       (primes |> Stream.last ~default:99999);
-  close_out oc;
-  Printf.printf "Solutions: %d\n" (Stream.count solutions);
-  Printf.printf "Full results written to %s\n" out_file_name
+  let out_file = "solutions.txt" in
+  let oc = open_out out_file in
+  let primes =
+    primes_generator
+    |> Stream.drop_while (fun p -> p < 10000)
+    |> Stream.take_while (fun p -> p <= 99999)
+    |> Stream.to_list
+  in
+  let chunk_size = 1000 in
+  let solve_chunk =
+    Stream.to_stream
+    >> Stream.flatmap (solve primes)
+    >> Stream.map (fun (p1, p2, p3) ->
+        Printf.fprintf oc "Found solution: %d, %d, %d\n" p1 p2 p3)
+    >> Stream.count
+  in
+  let total_count =
+    primes |> to_chunks chunk_size
+    |> List.map (fun chunk -> Domain.spawn (fun () -> solve_chunk chunk))
+    |> List.map Domain.join |> List.fold_left ( + ) 0
+  in
+  Printf.printf "Solutions: %d\n" total_count;
+  Printf.printf "Output written to %s\n" out_file

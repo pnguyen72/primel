@@ -9,6 +9,8 @@ val count : 'a t -> int
 val drop_while : ('a -> bool) -> 'a t -> 'a t
 val take_while : ('a -> bool) -> 'a t -> 'a t
 val map : ('a -> 'b) -> 'a t -> 'b t
+val iter : ('a -> unit) -> 'a t -> unit
 val filter : ('a -> bool) -> 'a t -> 'a t
 val cat : 'a t -> 'a t -> 'a t
 val flatmap : ('a -> 'b t) -> 'a t -> 'b t
+val to_list : 'a t -> 'a list
