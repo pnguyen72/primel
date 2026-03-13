@@ -17,7 +17,7 @@ let progress_bar (mins, maxes, frontiers) =
   let reporter =
     Domain.spawn (fun () ->
         while not (Atomic.get stop) do
-          Unix.sleepf 0.2;
+          Unix.sleepf 0.1;
           frontiers |> Array.to_seqi
           |> Seq.fold_left (fun acc (i, front) -> acc + front - mins.(i)) 0
           |> float_of_int |> update
