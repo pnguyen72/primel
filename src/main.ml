@@ -24,11 +24,10 @@ let generate_primes =
 let solve candidates p3 =
   let p3_digits = Digit.to_digits p3 in
   (*
-      n = current digit index
-      p1s = remaining candidates for p1
-      p2s = remaining candidates for p2
-      digits = remaining digits (haven't been used by either p1 or p2)
-  *)
+    n = current digit index
+    p1s = remaining candidates for p1
+    p2s = remaining candidates for p2
+    digits = remaining digits (haven't been used by either p1 or p2) *)
   let rec aux (n, p1s, p2s, digits) =
     if p1s = Empty || p2s = Empty then fun _ -> Empty
     else if
