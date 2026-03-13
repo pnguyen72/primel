@@ -33,49 +33,46 @@ let solve primes p3 =
     digits = remaining digits (haven't been used by either p1 or p2)
   *)
   let rec aux (n, p1s, p2s, digits) =
-    if Stream.is_empty p1s || Stream.is_empty p2s then fun _ -> Stream.Empty
+    if p1s = Stream.Empty || p2s = Stream.Empty then fun _ -> Stream.Empty
+    else if
+      (* Invalid solutions *)
+      let get_digits = List.take n << Stream.first ~default:[] in
+      let p1_digits = get_digits p1s and p2_digits = get_digits p2s in
+      p1_digits > p2_digits || p1_digits = p3_digits || p2_digits = p3_digits
+    then fun _ -> Stream.Empty
     else
-      let extract_digits n = List.take n << Stream.first ~default:[] in
-      if
-        (* Invalid solutions *)
-        let p1_digits = extract_digits n p1s in
-        let p2_digits = extract_digits n p2s in
-        p1_digits > p2_digits || p1_digits = p3_digits || p2_digits = p3_digits
-      then fun _ -> Stream.Empty
-      else
-        let narrow = Stream.filter << List.match_index n in
-        function
-        (* Out of digits *)
-        | d :: _ when (not << Stream.mem d) digits -> Stream.Empty
-        | d :: ds -> (
-            match Stream.remove d digits with
-            (* Out of digits *)
-            | Stream.Empty -> Stream.Empty
-            | digits ->
-                (* For each digit of p3, either p1 or p2 matches it.
+      let narrow = Stream.filter << List.match_index n in
+      function
+      (* Out of digits *)
+      | d :: _ when (not << Stream.mem d) digits -> Stream.Empty
+      | d :: ds -> (
+          match Stream.remove d digits with
+          (* Out of digits *)
+          | Stream.Empty -> Stream.Empty
+          | digits ->
+              (* For each digit of p3, either p1 or p2 matches it.
                 hits = remaining primes for the one that matches
                 misses = remaining primes for the other *)
-                let branch pair hits misses =
-                  let hits = narrow d hits in
-                  Stream.flatmap
-                    (fun d' ->
-                      let misses = narrow d' misses in
-                      let digits = Stream.remove d' digits in
-                      let p1s, p2s = pair hits misses in
-                      aux (n + 1, p1s, p2s, digits) ds)
-                    digits
-                in
-                (* Generate solutions for both cases, then concatenate *)
-                Stream.cat
-                  (branch (fun x y -> (x, y)) p1s p2s)
-                  (branch (fun x y -> (y, x)) p2s p1s))
-        | [] -> (
-            match (p1s, p2s) with
-            | Stream.Cons (p1_digits, _), Stream.Cons (p2_digits, _) ->
-                let p1 = Digit.to_int p1_digits
-                and p2 = Digit.to_int p2_digits in
-                Stream.singleton (p1, p2, p3)
-            | _ -> Stream.Empty)
+              let branch pair hits misses =
+                let hits = narrow d hits in
+                Stream.flatmap
+                  (fun d' ->
+                    let misses = narrow d' misses in
+                    let digits = Stream.remove d' digits in
+                    let p1s, p2s = pair hits misses in
+                    aux (n + 1, p1s, p2s, digits) ds)
+                  digits
+              in
+              (* Generate solutions for both cases, then concatenate *)
+              Stream.cat
+                (branch (fun x y -> (x, y)) p1s p2s)
+                (lazy (branch (fun x y -> (y, x)) p2s p1s)))
+      | [] -> (
+          match (p1s, p2s) with
+          | Stream.Cons (p1_digits, _), Stream.Cons (p2_digits, _) ->
+              let p1 = Digit.to_int p1_digits and p2 = Digit.to_int p2_digits in
+              Stream.singleton (p1, p2, p3)
+          | _ -> Stream.Empty)
   in
   let candidates = primes |> Stream.to_stream |> Stream.map Digit.to_digits in
   let all_digits = Stream.to_stream Digit.all in
@@ -92,10 +89,12 @@ let () =
     |> Parallel.parallelize 10 (fun on_progress ->
         Stream.to_stream
         >> Stream.flatmap (solve prime_list)
-        >> Stream.map (fun (p1, p2, p3) ->
-            Printf.fprintf oc "(%d, %d, %d)\n" p1 p2 p3;
-            on_progress p3)
-        >> Stream.count)
+        >> Stream.fold_left
+             (fun acc (p1, p2, p3) ->
+               Printf.fprintf oc "(%d, %d, %d)\n" p1 p2 p3;
+               on_progress p3;
+               acc + 1)
+             0)
     |> List.fold_left ( + ) 0
   in
 

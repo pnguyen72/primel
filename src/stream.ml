@@ -4,8 +4,6 @@ let first ~default = function
   | Cons (item, _) -> item
   | _ -> default
 
-let is_empty t = t = Empty
-
 let rec to_stream = function
   | [] -> Empty
   | x :: xs -> Cons (x, lazy (to_stream xs))
@@ -19,12 +17,9 @@ let to_list s =
 
 let singleton v = Cons (v, lazy Empty)
 
-let count s =
-  let rec aux acc = function
-    | Cons (_, next) -> aux (acc + 1) (Lazy.force next)
-    | _ -> acc
-  in
-  aux 0 s
+let rec fold_left f acc = function
+  | Cons (item, next) -> fold_left f (f acc item) (Lazy.force next)
+  | Empty -> acc
 
 let rec drop_while p = function
   | Cons (item, next) when p item -> drop_while p (Lazy.force next)
@@ -55,13 +50,8 @@ let rec mem v = function
 let rec cat s1 s2 =
   match s1 with
   | Cons (item, next) -> Cons (item, lazy (cat (Lazy.force next) s2))
-  | _ -> s2
-
-let rec lazy_cat s1 s2 =
-  match s1 with
-  | Cons (item, next) -> Cons (item, lazy (lazy_cat (Lazy.force next) s2))
   | _ -> Lazy.force s2
 
 let rec flatmap f = function
-  | Cons (item, next) -> lazy_cat (f item) (lazy (flatmap f (Lazy.force next)))
+  | Cons (item, next) -> cat (f item) (lazy (flatmap f (Lazy.force next)))
   | _ -> Empty
