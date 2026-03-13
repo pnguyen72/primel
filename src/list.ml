@@ -10,13 +10,10 @@ let rec match_index idx v = function
   | _ :: xs -> match_index (idx - 1) v xs
   | [] -> false
 
-let rec exist v = function
-  | [] -> false
-  | x :: xs -> x = v || exist v xs
-
-let rec has_dup = function
-  | [] -> false
-  | x :: xs -> exist x xs || has_dup xs
+let rec update i f = function
+  | [] -> failwith "Index error"
+  | x :: xs when i = 0 -> f x :: xs
+  | x :: xs -> x :: update (i - 1) f xs
 
 let to_chunks n =
   let rec split chunk rem list =

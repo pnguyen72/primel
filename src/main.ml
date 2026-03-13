@@ -1,9 +1,10 @@
 open Stream
+open Digit
 
-let ( << ) = Fun.compose
+let ( << ) f g x = f (g x)
+let ( >> ) f g x = g (f x)
 
-(* Sieve of Eratosthenes *)
-let generate_primes =
+let primes =
   let module M = struct
     include Map.Make (Int)
 
@@ -13,90 +14,75 @@ let generate_primes =
       in
       add (handle_collision n) p map
   end in
-  let rec primes_from n map =
+  let rec from n map =
     match M.find_opt n map with
-    | None -> Cons (n, lazy (map |> M.add (n * n) n |> primes_from (n + 1)))
-    | Some p -> map |> M.remove n |> M.safe_add (n + p) p |> primes_from (n + 1)
+    | None -> Cons (n, lazy (map |> M.add (n * n) n |> from (n + 1)))
+    | Some p -> map |> M.remove n |> M.safe_add (n + p) p |> from (n + 1)
   in
-  primes_from 2 M.empty
+  from 2 M.empty
+  |> drop_while (( > ) 10000)
+  |> take_while (( > ) 99999)
+  |> filter (not << has_dup << to_digits)
+
+let primes_tree = fold_left (Fun.flip T.insert) T.Nil primes
 
 (* Given p3, find all solutions (p1, p2, p3) *)
-let solve candidates p3 =
-  let p3_digits = Digit.to_digits p3 in
+let solve p3 =
   (*
-    n = current digit index
-    p1s = remaining candidates for p1
-    p2s = remaining candidates for p2
-    digits = remaining digits (haven't been used by either p1 or p2) *)
-  let rec aux (n, p1s, p2s, digits) =
-    if p1s = Empty || p2s = Empty then fun _ -> Empty
-    else if
-      (* Invalid solutions *)
-      let get_digits = List.take n << first ~default:[] in
-      let p1_digits = get_digits p1s and p2_digits = get_digits p2s in
-      p1_digits > p2_digits || p1_digits = p3_digits || p2_digits = p3_digits
-    then fun _ -> Empty
-    else function
-      (* Out of digits *)
-      | d :: _ when (not << mem d) digits -> Empty
-      | d :: ds -> (
-          match remove d digits with
-          (* Out of digits *)
-          | Empty -> Empty
-          | digits ->
-              let narrow_candidates = filter << List.match_index n in
-              (* For each digit of p3, either p1 or p2 matches it.
-                hits = remaining primes for the one that matches
-                misses = remaining primes for the other *)
-              let branch pair hits misses =
-                let hits = hits |> narrow_candidates d in
-                flatmap
-                  (fun d' ->
-                    let misses = misses |> narrow_candidates d' in
-                    let digits = digits |> remove d' in
-                    let p1s, p2s = pair hits misses in
-                    aux (n + 1, p1s, p2s, digits) ds)
-                  digits
-              in
-              (* Generate solutions for both cases, then concatenate *)
-              cat
-                (branch (fun x y -> (x, y)) p1s p2s)
-                (lazy (branch (fun x y -> (y, x)) p2s p1s)))
-      | [] -> (
-          match (p1s, p2s) with
-          | Cons (p1_digits, _), Cons (p2_digits, _) ->
-              let p1 = Digit.to_int p1_digits and p2 = Digit.to_int p2_digits in
-              singleton (p1, p2, p3)
-          | _ -> Empty)
+    n = 10^(current index)
+    p1_rem, p2_rem = remaining candidates for p1, p2
+    p1_acc, p2_acc = current p1, p2 (building digit-by-digit right-to-left)
+    digits = remaining digits 
+    p = current p3 (removing digit-by-digit right-to-left) *)
+  let rec aux (n, p1_rem, p2_rem, p1_acc, p2_acc, digits, p) =
+    if p1_rem = T.Nil || p2_rem = T.Nil then Empty
+    else if p = 0 then
+      if p1_acc < p2_acc && p1_acc <> p3 && p2_acc <> p3 then
+        singleton (p1_acc, p2_acc, p3)
+      else Empty
+    else
+      let d = p mod 10 in
+      if (not << mem d) digits then Empty
+      else
+        let digits = remove d digits in
+        let branch arrange (hit_rem, hit_acc) (miss_rem, miss_acc) =
+          let hit = (T.narrow d hit_rem, hit_acc + (n * d)) in
+          flatmap
+            (fun d' ->
+              let digits = remove d' digits in
+              let miss = (T.narrow d' miss_rem, miss_acc + (n * d')) in
+              let (p1_rem, p1_acc), (p2_rem, p2_acc) = arrange hit miss in
+              aux (n * 10, p1_rem, p2_rem, p1_acc, p2_acc, digits, p / 10))
+            digits
+        in
+        let p1 = (p1_rem, p1_acc) and p2 = (p2_rem, p2_acc) in
+        cat
+          (branch (fun x y -> (x, y)) p1 p2)
+          (lazy (branch (fun x y -> (y, x)) p2 p1))
   in
-  aux (0, candidates, candidates, Digit.all) p3_digits
+  aux (1, primes_tree, primes_tree, 0, 0, all, p3)
+
+let parallelize count f domain =
+  domain
+  |> List.to_chunks ((List.length domain + count - 1) / count)
+  |> List.map (fun chunk -> Domain.spawn (fun () -> f chunk))
+  |> List.map Domain.join
 
 let () =
   let out_file = "solutions.txt" in
   let oc = open_out out_file in
-  let on_progress callback count (p1, p2, p3) =
+  let m = Mutex.create () in
+  let on_progress count (p1, p2, p3) =
+    Mutex.lock m;
     Printf.fprintf oc "(%d, %d, %d)\n" p1 p2 p3;
-    callback p3;
+    Mutex.unlock m;
     count + 1
   in
-
-  let primes =
-    generate_primes
-    |> drop_while (( > ) 10000)
-    |> take_while (( > ) 99999)
-    |> filter (not << List.has_dup << Digit.to_digits)
-    |> to_list
-  in
   let result =
-    List.fold_left ( + ) 0
-      (Parallel.parallelize 12
-         (fun callback ->
-           fold_left (on_progress callback) 0
-           << (flatmap << solve << map Digit.to_digits << to_stream) primes
-           << to_stream)
-         primes)
+    primes |> to_list (* Must convert to list to parallelize *)
+    |> parallelize 12 (to_stream >> flatmap solve >> fold_left on_progress 0)
+    |> List.fold_left ( + ) 0
   in
-
   close_out oc;
   Printf.printf "Solutions: %d\n" result;
   Printf.printf "Output written to %s\n" out_file

@@ -1,4 +1,3 @@
 (executable
  (name main)
- (public_name primel)
- (libraries unix))
+ (public_name primel))
