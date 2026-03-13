@@ -4,4 +4,4 @@ let rec to_digits = function
 
 let to_int = List.fold_left (fun acc d -> (acc * 10) + d) 0
 
-let all = List.init 10 Fun.id
+let all = List.init 10 Fun.id |> Stream.to_stream
