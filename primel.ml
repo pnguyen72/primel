@@ -30,24 +30,6 @@ module List = struct
     if n < 1 then failwith "Chunk size must be positive" else collect []
 end
 
-module Stream = struct
-  type 'a t = Cons of 'a * 'a t Lazy.t
-
-  let ( !! ) = Lazy.force
-
-  let rec filter p = function
-    | Cons (item, next) when p item -> Cons (item, lazy (filter p !!next))
-    | Cons (_, next) -> filter p !!next
-
-  let rec drop_while p = function
-    | Cons (item, next) when p item -> drop_while p !!next
-    | s -> s
-
-  let rec take_while p = function
-    | Cons (item, next) when p item -> item :: take_while p !!next
-    | _ -> []
-end
-
 module Digits = struct
   let rec to_digits = function
     | 0 -> []
@@ -94,16 +76,18 @@ let primes =
   let rec from n map =
     match find_opt n map with
     (* Prime -> cross out n^2 *)
-    | None -> Stream.Cons (n, lazy (map |> add (n * n) n |> from (n + 1)))
-    (* Not prime, cross out next multiple *)
+    | None -> Seq.Cons (n, fun () -> map |> add (n * n) n |> from (n + 1))
+    (* Not prime -> cross out next multiple *)
     | Some p -> map |> remove n |> safe_add (n + p) p |> from (n + 1)
   in
-  from 2 empty
-  |> Stream.drop_while (( > ) 10000)
-  |> Stream.filter (not << List.has_dup << Digits.to_digits)
-  |> Stream.take_while (( > ) 99999)
 
-let primes_tree = Digits.T.from_list primes
+  (fun () -> from 2 empty)
+  |> Seq.drop_while (( > ) 10000)
+  |> Seq.filter (not << List.has_dup << Digits.to_digits)
+  |> Seq.take_while (( > ) 99999)
+  |> List.of_seq
+
+let primes_trie = Digits.T.from_list primes
 
 (* Given p3, find all solutions (p1, p2, p3) *)
 let solve p3 =
@@ -141,13 +125,14 @@ let solve p3 =
         let p1 = (rem_p1, acc_p1) and p2 = (rem_p2, acc_p2) in
         branch (fun x y -> (x, y)) p1 p2 @ branch (fun x y -> (y, x)) p2 p1
   in
-  aux (primes_tree, primes_tree, 0, 0, Digits.all, 1, p3)
+  aux (primes_trie, primes_trie, 0, 0, Digits.all, 1, p3)
 
 let parallelize count f domain =
-  domain
-  |> List.to_chunks ((List.length domain + count - 1) / count)
-  |> List.map (fun chunk -> Domain.spawn (fun () -> f chunk))
-  |> List.map Domain.join
+  List.(
+    domain
+    |> to_chunks ((length domain + count - 1) / count)
+    |> map (fun chunk -> Domain.spawn (fun () -> f chunk))
+    |> map Domain.join)
 
 let () =
   let out_file = "solutions.txt" in
